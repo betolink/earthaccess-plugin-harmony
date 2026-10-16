@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "earthaccess-harmony"
+version = "0.1.0"
+description = "Subset and transform Earthdata granules with NASA Harmony from earthaccess."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "earthaccess contributors" }]
+dependencies = [
+  "earthaccess-plugin-spec >=0.1.0",
+  "harmony-py >=0.6",  # VERIFY: minimum version with Client(status/result_urls/cancel/...)
+]
+
+[project.entry-points."earthaccess.plugins"]
+harmony = "earthaccess_harmony:HarmonyPlugin"
+
+[project.optional-dependencies]
+test = ["pytest >=8.0"]
+
+[project.urls]
+Repository = "https://github.com/betolink/earthaccess-plugin-harmony"
+
+# The contract lives on GitHub until it is published to PyPI.
+[tool.uv.sources]
+earthaccess-plugin-spec = { git = "https://github.com/betolink/earthaccess-plugin-spec.git", branch = "main" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/earthaccess_harmony"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src", "tests"]
+disallow_untyped_defs = true
+pretty = true
+
+[[tool.mypy.overrides]]
+module = ["harmony", "harmony.*", "pytest", "pytest.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

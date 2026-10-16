@@ -1,0 +1,133 @@
+import pytest
+from earthaccess_plugin_spec import Asset, JobStatus
+from earthaccess_plugin_spec.errors import JobFailedError, JobPausedError
+from earthaccess_plugin_spec.testing import fake_context, sample_result_set
+
+from earthaccess_harmony import HarmonyJob, HarmonyPlugin
+from earthaccess_harmony.job import ORDER_URL, STATUS_MAP, format_of
+
+from .fixtures import FakeHarmonyClient
+
+
+def make_plugin(client: FakeHarmonyClient) -> HarmonyPlugin:
+    plugin = HarmonyPlugin(fake_context())
+    plugin._h = client  # skip make_client
+    return plugin
+
+
+class TestFormatOf:
+    @pytest.mark.parametrize(
+        ("href", "expected"),
+        [
+            ("https://e.org/a.nc4", "netcdf4"),
+            ("https://e.org/a.nc", "netcdf4"),
+            ("https://e.org/a.zarr", "zarr"),
+            ("https://e.org/a.parquet", "geoparquet"),
+            ("https://e.org/a.csv", "csv"),
+            ("https://e.org/a.tif", "geotiff"),
+            ("https://e.org/a.nc4?token=1", "netcdf4"),
+            ("https://e.org/a.unknown", None),
+        ],
+    )
+    def test_formats(self, href, expected):
+        assert format_of(href) == expected
+
+
+class TestStatusMapping:
+    def test_known_states(self):
+        client = FakeHarmonyClient()
+        job = HarmonyJob("j1", client)
+        for raw, expected in STATUS_MAP.items():
+            client._statuses = [raw]
+            assert job.status() is expected
+
+    def test_unknown_state_warns_and_keeps_running(self, caplog):
+        client = FakeHarmonyClient(statuses=["running", "nonsense", "successful"])
+        job = HarmonyJob("j1", client)
+        with caplog.at_level("WARNING", logger="earthaccess.plugins"):
+            assert job.status() is JobStatus.RUNNING  # running
+            assert job.status() is JobStatus.RUNNING  # nonsense -> warning
+        assert "unknown Harmony status" in caplog.text
+        assert job.status() is JobStatus.SUCCEEDED
+
+    def test_info_has_order_url_and_no_request(self):
+        job = HarmonyJob("j1", FakeHarmonyClient())
+        info = job.info()
+        assert info["order_url"] == ORDER_URL + "j1"
+        assert "request" not in info
+        assert info["message"] == "ok"
+
+
+class TestFetch:
+    def test_assets_access_and_format(self):
+        client = FakeHarmonyClient(
+            urls=["s3://bucket/a.nc4", "https://e.org/b.parquet", "https://e.org/c.unknown"]
+        )
+        job = HarmonyJob("j1", client)
+        assets = job.results()
+        assert all(isinstance(a, Asset) for a in assets)
+        assert assets[0].access == "s3" and assets[0].format == "netcdf4"
+        assert assets[1].access == "https" and assets[1].format == "geoparquet"
+        assert assets[2].format is None
+
+
+class TestFailureAndPause:
+    def test_failed_job_raises(self):
+        job = HarmonyJob("j1", FakeHarmonyClient(statuses=["failed"]))
+        assert job.wait(timeout=5) is JobStatus.FAILED
+        with pytest.raises(JobFailedError):
+            job.results()
+
+    def test_paused_then_resume(self):
+        client = FakeHarmonyClient(statuses=["previewing"])
+        job = HarmonyJob("j1", client)
+        assert job.status() is JobStatus.PAUSED
+        with pytest.raises(JobPausedError, match="resume"):
+            job.results()
+        assert job.resume() is True
+        assert client.resumed
+
+    def test_skip_preview(self):
+        client = FakeHarmonyClient()
+        job = HarmonyJob("j1", client)
+        assert job.skip_preview() is True
+        assert client.preview_skipped
+
+    def test_cancel(self):
+        client = FakeHarmonyClient()
+        job = HarmonyJob("j1", client)
+        assert job.cancel() is True
+        assert client.canceled
+
+
+class TestRequest:
+    def test_forwards_collection_and_granules(self):
+        from unittest import mock
+
+        plugin = HarmonyPlugin(fake_context())
+        results = sample_result_set()
+        with mock.patch("earthaccess_harmony.client.build_request") as build:
+            build.return_value = {"request": True}
+            plugin._h = FakeHarmonyClient()
+            job = plugin.request(results, variables=["x"], skip_preview=True)
+        assert isinstance(job, HarmonyJob)
+        kwargs = build.call_args.kwargs
+        assert kwargs["collection_id"] == results.collection_id
+        assert kwargs["granule_ids"] == list(results.ids)
+        assert kwargs["variables"] == ["x"]
+        assert kwargs["skip_preview"] is True
+
+    def test_get_job_is_resumable(self):
+        plugin = HarmonyPlugin(fake_context())
+        plugin._h = FakeHarmonyClient()
+        job = plugin.get_job("abc")
+        assert isinstance(job, HarmonyJob)
+        assert job.id == "abc"
+        assert job.resumable is True
+
+
+def test_entry_point_registered():
+    from importlib.metadata import entry_points
+
+    names = {ep.name for ep in entry_points(group="earthaccess.plugins")}
+    assert "harmony" in names
