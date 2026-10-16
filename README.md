@@ -56,13 +56,51 @@ assets = job.results()            # list[Asset]; each has href/access/format
 
 ### Options
 
-| Option | Meaning |
-| --- | --- |
-| `bbox=(west, south, east, north)` | spatial subset |
-| `variables=[...]` | variables to keep |
-| `shapefile="path.shp"` | spatial subset from a shapefile |
-| `output_format="application/x-netcdf4"` | requested media type |
-| `skip_preview=True` | run immediately instead of waiting for a preview |
+The options mirror `harmony-py`'s `Request`, so every Harmony operation is
+available:
+
+| Option | Operation | Meaning |
+| --- | --- | --- |
+| `bbox=(west, south, east, north)` | subset | spatial subset |
+| `wkt="POLYGON(...)"` | subset | spatial subset from WKT |
+| `temporal={"start": dt, "stop": dt}` | subset | temporal subset |
+| `variables=[...]` | subset | variables to keep |
+| `shapefile="path.shp"` | subset | spatial subset from a shapefile |
+| `crs="EPSG:3995"` | reproject | target coordinate reference system |
+| `width`, `height` | reproject | output raster size |
+| `scale_extent=[...]`, `scale_size=[...]`, `interpolation="..."` | reproject | resampling controls |
+| `average="time"` | aggregate | `"time"`, `"area"` or `"time,area"` |
+| `concatenate=True` | aggregate | concatenate outputs |
+| `output_format="image/tiff"` | reformat | requested media type |
+| `max_results`, `grid`, `destination_url`, `dimensions`, `extend`, `labels`, `pixel_subset`, `service_id`, `ignore_errors` | misc | passed through to `harmony.Request` |
+| `skip_preview=True` | — | run immediately instead of waiting for a preview |
+
+Not every service supports every operation for every collection; check first:
+
+```python
+ea.plugins.harmony.capabilities("MUR-JPL-L4-GLOB-v4.1")
+# operations: reproject, subset_bbox, subset_dimension, subset_shape,
+#             subset_temporal, subset_variable
+# formats: application/netcdf, image/jpeg, image/png, image/tiff
+```
+
+Example — subset, reproject to a polar grid and return a GeoTIFF:
+
+```python
+import datetime as dt
+
+job = ea.plugins.harmony.request(
+    results,
+    bbox=(-165, 52, -140, 77),
+    temporal={"start": dt.datetime(2010, 1, 1), "stop": dt.datetime(2020, 12, 30)},
+    variables=["blue_var"],
+    crs="EPSG:3995",
+    width=512,
+    height=512,
+    output_format="image/tiff",
+    max_results=10,
+)
+```
 
 ### Managing a Harmony order
 

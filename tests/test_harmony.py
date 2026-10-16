@@ -149,6 +149,79 @@ class TestRequest:
         assert job.resumable is True
 
 
+class TestBuildRequest:
+    @staticmethod
+    def _fake_harmony(monkeypatch):
+        import sys
+        import types
+
+        captured: dict = {}
+
+        class Request:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        class Collection:
+            def __init__(self, id):
+                self.id = id
+
+        class BBox:
+            def __init__(self, *args):
+                self.args = args
+
+        class WKT:
+            def __init__(self, value):
+                self.value = value
+
+        fake = types.ModuleType("harmony")
+        fake.Request = Request
+        fake.Collection = Collection
+        fake.BBox = BBox
+        fake.WKT = WKT
+        monkeypatch.setitem(sys.modules, "harmony", fake)
+        return captured, BBox
+
+    def test_maps_every_operation(self, monkeypatch):
+        captured, BBox = self._fake_harmony(monkeypatch)
+        from earthaccess_harmony.client import build_request
+
+        build_request(
+            collection_id="C1",
+            granule_ids=["G1"],
+            bbox=(-165, 52, -140, 77),
+            temporal={"start": "s", "stop": "e"},
+            variables=["blue_var"],
+            crs="EPSG:3995",
+            width=512,
+            height=512,
+            output_format="image/tiff",
+            max_results=10,
+            average="time",
+            concatenate=True,
+            skip_preview=True,
+        )
+
+        assert isinstance(captured["spatial"], BBox)
+        assert captured["temporal"] == {"start": "s", "stop": "e"}
+        assert captured["variables"] == ["blue_var"]
+        assert captured["crs"] == "EPSG:3995"
+        assert captured["width"] == 512 and captured["height"] == 512
+        assert captured["format"] == "image/tiff"
+        assert captured["max_results"] == 10
+        assert captured["average"] == "time"
+        assert captured["concatenate"] is True
+        assert captured["skip_preview"] is True
+
+    def test_none_values_are_omitted(self, monkeypatch):
+        captured, _ = self._fake_harmony(monkeypatch)
+        from earthaccess_harmony.client import build_request
+
+        build_request(collection_id="C1", granule_ids=["G1"])
+        assert "crs" not in captured
+        assert "spatial" not in captured
+        assert "format" not in captured
+
+
 def test_entry_point_registered():
     from importlib.metadata import entry_points
 

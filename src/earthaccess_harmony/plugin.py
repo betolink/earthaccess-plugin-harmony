@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from earthaccess_plugin_spec import Capabilities, Capability, PluginBase
@@ -50,6 +50,30 @@ def _operations_from_services(
 
 
 class HarmonyPlugin(PluginBase):
+    """Subset, reproject, reformat and transform Earthdata granules with Harmony.
+
+    The ``Options`` mirror the ``harmony-py`` ``Request`` keywords, so every
+    Harmony operation is available. For example, reproject to a polar grid and
+    return a GeoTIFF:
+
+    ```python
+    import datetime as dt
+
+    job = ea.plugins.harmony.request(
+        results,
+        bbox=(-165, 52, -140, 77),
+        temporal={"start": dt.datetime(2010, 1, 1), "stop": dt.datetime(2020, 12, 30)},
+        variables=["blue_var"],
+        crs="EPSG:3995",
+        width=512,
+        height=512,
+        output_format="image/tiff",
+        max_results=10,
+    )
+    dataset = ea.open(job)   # or ea.download(job, "./data")
+    ```
+    """
+
     name = "harmony"
     needs = frozenset({"concept_id"})
     auth = "edl"
@@ -57,10 +81,36 @@ class HarmonyPlugin(PluginBase):
 
     @dataclass
     class Options:
-        bbox: tuple[float, float, float, float] | None = None
+        # Subsetting
+        bbox: tuple[float, float, float, float] | None = (
+            None  # west, south, east, north
+        )
+        wkt: str | None = None  # alternative spatial extent
+        temporal: dict[str, Any] | None = None  # {"start": datetime, "stop": datetime}
         variables: list[str] = field(default_factory=list)
         shapefile: str | None = None
-        output_format: str | None = None
+        # Reprojection
+        crs: str | None = None
+        width: int | None = None
+        height: int | None = None
+        scale_extent: list[float] | None = None
+        scale_size: list[float] | None = None
+        interpolation: str | None = None
+        # Aggregation / output
+        average: str | None = None  # "time" | "area" | "time,area"
+        concatenate: bool | None = None
+        output_format: str | None = None  # e.g. "application/x-netcdf4", "image/tiff"
+        # Misc harmony-py passthroughs
+        max_results: int | None = None
+        dimensions: list[Any] | None = None
+        extend: list[str] | None = None
+        destination_url: str | None = None
+        grid: str | None = None
+        ignore_errors: bool | None = None
+        pixel_subset: bool | None = None
+        service_id: str | None = None
+        labels: list[str] | None = None
+        granule_name: list[str] | None = None
         skip_preview: bool = False
 
     def __init__(self, ctx: Any) -> None:
@@ -76,11 +126,7 @@ class HarmonyPlugin(PluginBase):
         request = _client.build_request(
             collection_id=results.collection_id,
             granule_ids=list(results.ids),
-            bbox=options.bbox,
-            variables=options.variables,
-            shapefile=options.shapefile,
-            output_format=options.output_format,
-            skip_preview=options.skip_preview,
+            **asdict(options),
         )
         client = self._harmony_client()
         return HarmonyJob(client.submit(request), client)

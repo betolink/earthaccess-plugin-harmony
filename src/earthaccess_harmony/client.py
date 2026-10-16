@@ -10,7 +10,7 @@ Verified against ``harmony-py`` 1.8.
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 __all__ = [
@@ -64,12 +64,37 @@ def build_request(
     collection_id: str,
     granule_ids: Sequence[str],
     bbox: Sequence[float] | None = None,
+    wkt: str | None = None,
+    temporal: Mapping[str, Any] | None = None,
     variables: Sequence[str] | None = None,
     shapefile: str | None = None,
     output_format: str | None = None,
+    crs: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    scale_extent: Sequence[float] | None = None,
+    scale_size: Sequence[float] | None = None,
+    interpolation: str | None = None,
+    average: str | None = None,
+    concatenate: bool | None = None,
+    max_results: int | None = None,
+    dimensions: Sequence[Any] | None = None,
+    extend: Sequence[str] | None = None,
+    destination_url: str | None = None,
+    grid: str | None = None,
+    ignore_errors: bool | None = None,
+    pixel_subset: bool | None = None,
+    service_id: str | None = None,
+    labels: Sequence[str] | None = None,
+    granule_name: Sequence[str] | None = None,
     skip_preview: bool = False,
 ) -> Any:
-    """Build a ``harmony.Request``, omitting options Harmony should default."""
+    """Build a ``harmony.Request``, omitting options Harmony should default.
+
+    Mirrors the ``harmony-py`` ``Request`` keywords so every Harmony operation
+    (subsetting, reprojection, reformatting, averaging, concatenation) can be
+    expressed through the plugin ``Options``.
+    """
 
     import harmony
 
@@ -79,6 +104,10 @@ def build_request(
     }
     if bbox is not None:
         kwargs["spatial"] = harmony.BBox(*bbox)
+    elif wkt is not None:
+        kwargs["spatial"] = harmony.WKT(wkt)
+    if temporal is not None:
+        kwargs["temporal"] = temporal
     if variables:
         kwargs["variables"] = list(variables)
     if shapefile:
@@ -87,6 +116,28 @@ def build_request(
         kwargs["format"] = output_format
     if skip_preview:
         kwargs["skip_preview"] = True
+    for key, value in (
+        ("crs", crs),
+        ("width", width),
+        ("height", height),
+        ("scale_extent", scale_extent),
+        ("scale_size", scale_size),
+        ("interpolation", interpolation),
+        ("average", average),
+        ("concatenate", concatenate),
+        ("max_results", max_results),
+        ("dimensions", dimensions),
+        ("extend", extend),
+        ("destination_url", destination_url),
+        ("grid", grid),
+        ("ignore_errors", ignore_errors),
+        ("pixel_subset", pixel_subset),
+        ("service_id", service_id),
+        ("labels", labels),
+        ("granule_name", granule_name),
+    ):
+        if value is not None:
+            kwargs[key] = value
     return harmony.Request(**kwargs)
 
 
