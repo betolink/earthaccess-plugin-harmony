@@ -117,14 +117,20 @@ def fake_capabilities(client: FakeHarmonyClient):
 class HarmonyFixtures(Fixtures):
     def __init__(self, client: FakeHarmonyClient | None = None, **kwargs: Any) -> None:
         self.client = client or FakeHarmonyClient(
-            unsupported_collections={"C-NO-HARMONY"}
+            unsupported_collections={"C-NO-HARMONY", "LANDSAT_8_C1"}
         )
         kwargs.setdefault(
             "result_set", GranuleResultSet([make_granule(collection_id="C-HARMONY")])
         )
         kwargs.setdefault(
             "unsupported_result_set",
-            GranuleResultSet([make_granule(collection_id="C-NO-HARMONY")]),
+            GranuleResultSet(
+                [
+                    make_granule(
+                        collection_id="C-NO-HARMONY", short_name="LANDSAT_8_C1"
+                    )
+                ]
+            ),
         )
         super().__init__(**kwargs)
 

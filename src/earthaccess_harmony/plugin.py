@@ -13,6 +13,16 @@ from .job import HarmonyJob
 __all__ = ["HarmonyPlugin"]
 
 
+def _peek_collection_id(results: Any) -> str:
+    """Peek the first granule's collection concept id (no materialization)."""
+
+    try:
+        first = next(iter(results), None)
+    except TypeError:
+        return ""
+    return first.get("meta", {}).get("collection-concept-id", "") if first else ""
+
+
 def _operations_from_services(
     services: list[dict[str, Any]],
 ) -> tuple[frozenset[Capability], frozenset[str]]:
@@ -123,9 +133,18 @@ class HarmonyPlugin(PluginBase):
         return self._h
 
     def _request(self, results: Any, options: Options) -> HarmonyJob:
+        # Stream the resultset once, projecting only what Harmony needs: the
+        # collection concept id and the granule concept ids.
+        collection_id = ""
+        granule_ids: list[str] = []
+        for granule in results:
+            meta = granule.get("meta", {})
+            if not collection_id:
+                collection_id = meta.get("collection-concept-id", "")
+            granule_ids.append(meta.get("concept-id", ""))
         request = _client.build_request(
-            collection_id=results.collection_id,
-            granule_ids=list(results.ids),
+            collection_id=collection_id,
+            granule_ids=granule_ids,
             **asdict(options),
         )
         client = self._harmony_client()
@@ -135,8 +154,8 @@ class HarmonyPlugin(PluginBase):
         return HarmonyJob(job_id, self._harmony_client())
 
     def _supports(self, results: Any) -> Capabilities:
-        collection_id = getattr(results, "collection_id", "") or ""
         short_name = getattr(results, "short_name", "") or ""
+        collection_id = "" if short_name else _peek_collection_id(results)
         label = short_name or collection_id
         if not label:
             return Capabilities(None, reason="need a collection id or short name")
