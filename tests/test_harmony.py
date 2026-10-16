@@ -212,6 +212,37 @@ class TestBuildRequest:
         assert captured["concatenate"] is True
         assert captured["skip_preview"] is True
 
+    def test_geojson_shapefile_sets_geojson_mime(self, monkeypatch, tmp_path):
+        captured, _ = self._fake_harmony(monkeypatch)
+        from earthaccess_harmony.client import build_request
+
+        path = tmp_path / "aoi.geojson"
+        path.write_text("{}")
+        build_request(collection_id="C1", granule_ids=["G1"], shapefile=str(path))
+
+        handle, mime = captured["shape"]
+        assert mime == "application/geo+json"
+        handle.close()
+
+    def test_zip_shapefile_sets_shapefile_mime(self, monkeypatch, tmp_path):
+        captured, _ = self._fake_harmony(monkeypatch)
+        from earthaccess_harmony.client import build_request
+
+        path = tmp_path / "aoi.zip"
+        path.write_bytes(b"")
+        build_request(collection_id="C1", granule_ids=["G1"], shapefile=str(path))
+
+        _, mime = captured["shape"]
+        assert mime == "application/shapefile+zip"
+
+    def test_wkt_sets_spatial(self, monkeypatch):
+        captured, _ = self._fake_harmony(monkeypatch)
+        from earthaccess_harmony.client import build_request
+
+        build_request(collection_id="C1", granule_ids=["G1"], wkt="POLYGON ((0 0))")
+
+        assert captured["spatial"].value == "POLYGON ((0 0))"
+
     def test_none_values_are_omitted(self, monkeypatch):
         captured, _ = self._fake_harmony(monkeypatch)
         from earthaccess_harmony.client import build_request
