@@ -1,12 +1,19 @@
 import pytest
-from earthaccess_plugin_spec import Asset, JobStatus
+from earthaccess_plugin_spec import (
+    Asset,
+    JobStatus,
+    Support,
+    UnsupportedCollectionError,
+)
 from earthaccess_plugin_spec.errors import JobFailedError, JobPausedError
+from earthaccess_plugin_spec.results import GranuleResultSet
 from earthaccess_plugin_spec.testing import fake_context, sample_result_set
 
 from earthaccess_harmony import HarmonyJob, HarmonyPlugin
+from earthaccess_harmony.client import CapabilitiesUnavailable
 from earthaccess_harmony.job import ORDER_URL, STATUS_MAP, format_of
 
-from .fixtures import FakeHarmonyClient
+from .fixtures import FakeHarmonyClient, make_granule
 
 
 def make_plugin(client: FakeHarmonyClient) -> HarmonyPlugin:
@@ -131,3 +138,53 @@ def test_entry_point_registered():
 
     names = {ep.name for ep in entry_points(group="earthaccess.plugins")}
     assert "harmony" in names
+
+
+class TestSupport:
+    def test_service_association_is_enough(self):
+        plugin = HarmonyPlugin(fake_context())
+        client = FakeHarmonyClient(unsupported_collections={"C-HARMONY"})
+        plugin._h = client
+        results = GranuleResultSet(
+            [make_granule(collection_id="C-HARMONY")],
+            services=[{"Type": "Harmony", "Name": "subset"}],
+        )
+        assert plugin.supports(results) == Support(True)
+        # The association is authoritative; no capabilities call was needed.
+        assert ("capabilities", "C-HARMONY") not in client.calls
+
+    def test_capabilities_fallback(self):
+        plugin = HarmonyPlugin(fake_context())
+        client = FakeHarmonyClient()
+        plugin._h = client
+        support = plugin.supports(GranuleResultSet([make_granule(collection_id="C-HARMONY")]))
+        assert support == Support(True)
+        assert ("capabilities", "C-HARMONY") in client.calls
+
+    def test_definitive_no(self):
+        plugin = HarmonyPlugin(fake_context())
+        plugin._h = FakeHarmonyClient(unsupported_collections={"C-NO-HARMONY"})
+        support = plugin.supports(
+            GranuleResultSet([make_granule(collection_id="C-NO-HARMONY")])
+        )
+        assert support.ok is False
+        assert "no Harmony service" in support.reason
+
+    def test_unknown_when_capabilities_unavailable(self):
+        plugin = HarmonyPlugin(fake_context())
+        plugin._h = FakeHarmonyClient(
+            capabilities_error=CapabilitiesUnavailable("boom")
+        )
+        support = plugin.supports(GranuleResultSet([make_granule(collection_id="C-X")]))
+        assert support.ok is None
+
+    def test_request_raises_before_backend_call(self):
+        plugin = HarmonyPlugin(fake_context())
+        client = FakeHarmonyClient(unsupported_collections={"C-NO-HARMONY"})
+        plugin._h = client
+        results = GranuleResultSet([make_granule(collection_id="C-NO-HARMONY")])
+        with pytest.raises(UnsupportedCollectionError):
+            plugin.request(results, variables=["x"])
+        # The support probe ran, but nothing reached submit().
+        assert all(name != "submit" for name, _ in client.calls)
+

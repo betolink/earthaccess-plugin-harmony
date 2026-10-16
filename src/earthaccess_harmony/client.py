@@ -10,7 +10,38 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-__all__ = ["build_request", "make_client"]
+__all__ = [
+    "CapabilitiesUnavailable",
+    "CollectionNotFound",
+    "build_request",
+    "capabilities",
+    "make_client",
+]
+
+
+class CapabilitiesUnavailable(Exception):
+    """Raised when the Harmony capabilities check cannot be performed.
+
+    Maps to ``Support(None)``: never hard-block a request on a failed check.
+    """
+
+
+class CollectionNotFound(Exception):
+    """Raised when Harmony definitively has no service for a collection."""
+
+
+def capabilities(client: Any, collection_id: str) -> bool:
+    """Return whether Harmony has a service for ``collection_id``.
+
+    VERIFY: the harmony-py call name and return shape. Raise
+    :class:`CollectionNotFound` for a definitive no, and
+    :class:`CapabilitiesUnavailable` when the check cannot be made.
+    """
+
+    method = getattr(client, "capabilities", None)
+    if method is None:
+        raise CapabilitiesUnavailable("harmony client exposes no capabilities() call")
+    return bool(method(collection_id))
 
 
 def make_client(ctx: Any) -> Any:

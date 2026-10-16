@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from earthaccess_plugin_spec import PluginBase
+from earthaccess_plugin_spec import PluginBase, Support
 
 from . import client as _client
 from .job import HarmonyJob
@@ -51,3 +51,28 @@ class HarmonyPlugin(PluginBase):
 
     def get_job(self, job_id: str) -> HarmonyJob:
         return HarmonyJob(job_id, self._harmony_client())
+
+    def _supports(self, results: Any) -> Support:
+        # Association first (cheap: already in the results), capabilities as the
+        # tiebreaker (one network call per collection).
+        if any(
+            str(service.get("Type", "")).lower() == "harmony"
+            for service in results.services()
+        ):
+            return Support(True)
+        try:
+            if _client.capabilities(self._harmony_client(), results.collection_id):
+                return Support(True)
+            return Support(
+                False,
+                f"no Harmony service is associated with {results.collection_id}",
+            )
+        except _client.CollectionNotFound:
+            return Support(
+                False,
+                f"no Harmony service is associated with {results.collection_id}",
+            )
+        except _client.CapabilitiesUnavailable as exc:
+            return Support(None, f"could not check Harmony capabilities: {exc}")
+        except Exception as exc:  # noqa: BLE001 - unknown means don't hard-block
+            return Support(None, f"could not check Harmony capabilities: {exc!r}")
