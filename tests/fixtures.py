@@ -51,7 +51,6 @@ class FakeHarmonyClient:
         self.canceled = False
         self.paused = False
         self.resumed = False
-        self.preview_skipped = False
 
     def submit(self, request: Any) -> str:
         self.calls.append(("submit", request))
@@ -68,34 +67,51 @@ class FakeHarmonyClient:
         self.calls.append(("result_urls", job_id))
         return list(self.urls)
 
-    def capabilities(self, collection_id: str) -> bool:
-        self.calls.append(("capabilities", collection_id))
-        if self.capabilities_error is not None:
-            raise self.capabilities_error
-        if collection_id in self.unsupported_collections:
-            from earthaccess_harmony.client import CollectionNotFound
-
-            raise CollectionNotFound(collection_id)
-        return True
-
     def cancel(self, job_id: str) -> None:
         self.calls.append(("cancel", job_id))
         self.canceled = True
 
-    def pause(self, job_id: str) -> bool:
+    def pause(self, job_id: str) -> None:
         self.calls.append(("pause", job_id))
         self.paused = True
-        return True
 
-    def resume(self, job_id: str) -> bool:
+    def resume(self, job_id: str) -> None:
         self.calls.append(("resume", job_id))
         self.resumed = True
-        return True
 
-    def skip_preview(self, job_id: str) -> bool:
-        self.calls.append(("skip_preview", job_id))
-        self.preview_skipped = True
-        return True
+
+def fake_capabilities(client: FakeHarmonyClient):
+    """A stand-in for the ``client.capabilities`` seam (returns a response dict)."""
+
+    def check(
+        _client: Any, *, collection_id: str | None = None, short_name: str | None = None
+    ) -> dict[str, Any]:
+        from earthaccess_harmony.client import CollectionNotFound
+
+        if client.capabilities_error is not None:
+            raise client.capabilities_error
+        key = collection_id or short_name
+        if key in client.unsupported_collections:
+            raise CollectionNotFound(key)
+        return {
+            "services": [
+                {
+                    "name": "subsetter",
+                    "capabilities": {
+                        "subsetting": {
+                            "bbox": True,
+                            "temporal": True,
+                            "variable": True,
+                            "shape": True,
+                            "dimension": False,
+                        },
+                        "outputFormats": [{"mimeType": "application/netcdf4"}],
+                    },
+                }
+            ]
+        }
+
+    return check
 
 
 class HarmonyFixtures(Fixtures):
@@ -119,4 +135,5 @@ class HarmonyFixtures(Fixtures):
             client_mod,
             make_client=lambda ctx: self.client,
             build_request=lambda **kwargs: {"request": kwargs},
+            capabilities=fake_capabilities(self.client),
         )

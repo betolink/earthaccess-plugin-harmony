@@ -81,12 +81,22 @@ class HarmonyJob(Job):
         return True
 
     def pause(self) -> bool:
-        return bool(self._client.pause(self.id))
+        self._client.pause(self.id)
+        return True
 
     def resume(self) -> bool:
-        return bool(self._client.resume(self.id))
+        self._client.resume(self.id)
+        return True
 
     def skip_preview(self) -> bool:
-        """Harmony-specific: accept a large request without a human preview."""
+        """Harmony-specific: accept a large request without a human preview.
 
-        return bool(self._client.skip_preview(self.id))
+        Like icepyx: a previewing/paused job cannot be skipped directly, but
+        pausing and resuming it does the trick.
+        """
+
+        status = self._client.status(self.id).get("status")
+        if status in ("paused", "previewing"):
+            self._client.pause(self.id)
+            self._client.resume(self.id)
+        return True

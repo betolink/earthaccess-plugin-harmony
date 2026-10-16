@@ -101,11 +101,17 @@ except JobPausedError:
 
 ## Checking that a collection is supported
 
-Before submitting, the plugin confirms Harmony has a service for the collection
-and raises `UnsupportedCollectionError` early if it does not:
+Before submitting, the plugin asks Harmony's capabilities endpoint what the
+collection supports and raises `UnsupportedCollectionError` early if there is no
+service:
 
 ```python
-ea.plugins.harmony.supports(results)   # Support(ok=True/False/None, reason=...)
+ea.plugins.harmony.supports(results)
+# Capabilities('harmony supported ATL06', operations=3)
+#   operations: subset_bbox, subset_temporal, subset_variable
+#   formats: application/netcdf4
+
+ea.plugins.harmony.capabilities("ATL06")  # same, by short name
 ```
 
 ## License

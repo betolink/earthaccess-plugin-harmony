@@ -5,12 +5,48 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from earthaccess_plugin_spec import PluginBase, Support
+from earthaccess_plugin_spec import Capabilities, Capability, PluginBase
 
 from . import client as _client
 from .job import HarmonyJob
 
 __all__ = ["HarmonyPlugin"]
+
+
+def _operations_from_services(
+    services: list[dict[str, Any]],
+) -> tuple[frozenset[Capability], frozenset[str]]:
+    """Map Harmony's capabilities response onto our operation/format enums."""
+
+    operations: set[Capability] = set()
+    formats: set[str] = set()
+    for service in services:
+        caps = service.get("capabilities", {}) or {}
+        subsetting = caps.get("subsetting", {}) or {}
+        if subsetting.get("bbox"):
+            operations.add(Capability.SUBSET_BBOX)
+        if subsetting.get("temporal"):
+            operations.add(Capability.SUBSET_TEMPORAL)
+        if subsetting.get("variable"):
+            operations.add(Capability.SUBSET_VARIABLE)
+        if subsetting.get("shape"):
+            operations.add(Capability.SUBSET_SHAPE)
+        if subsetting.get("dimension"):
+            operations.add(Capability.SUBSET_DIMENSION)
+        if (caps.get("reprojection") or {}).get("supported"):
+            operations.add(Capability.REPROJECT)
+        averaging = caps.get("averaging", {}) or {}
+        if averaging.get("time"):
+            operations.add(Capability.AVERAGE_TIME)
+        if averaging.get("area"):
+            operations.add(Capability.AVERAGE_AREA)
+        if caps.get("concatenation"):
+            operations.add(Capability.CONCATENATE)
+        for output in caps.get("outputFormats", []) or []:
+            mime = output.get("mimeType") or output.get("name")
+            if mime:
+                formats.add(mime)
+    return frozenset(operations), frozenset(formats)
 
 
 class HarmonyPlugin(PluginBase):
@@ -52,27 +88,36 @@ class HarmonyPlugin(PluginBase):
     def get_job(self, job_id: str) -> HarmonyJob:
         return HarmonyJob(job_id, self._harmony_client())
 
-    def _supports(self, results: Any) -> Support:
-        # Association first (cheap: already in the results), capabilities as the
-        # tiebreaker (one network call per collection).
-        if any(
-            str(service.get("Type", "")).lower() == "harmony"
-            for service in results.services()
-        ):
-            return Support(True)
+    def _supports(self, results: Any) -> Capabilities:
+        collection_id = getattr(results, "collection_id", "") or ""
+        short_name = getattr(results, "short_name", "") or ""
+        label = short_name or collection_id
+        if not label:
+            return Capabilities(None, reason="need a collection id or short name")
         try:
-            if _client.capabilities(self._harmony_client(), results.collection_id):
-                return Support(True)
-            return Support(
-                False,
-                f"no Harmony service is associated with {results.collection_id}",
+            response = _client.capabilities(
+                self._harmony_client(),
+                collection_id=collection_id or None,
+                short_name=short_name or None,
             )
         except _client.CollectionNotFound:
-            return Support(
-                False,
-                f"no Harmony service is associated with {results.collection_id}",
+            return Capabilities(
+                False, collection=label, reason=f"no Harmony service for {label}"
             )
         except _client.CapabilitiesUnavailable as exc:
-            return Support(None, f"could not check Harmony capabilities: {exc}")
+            return Capabilities(
+                None, collection=label, reason=f"could not check Harmony: {exc}"
+            )
         except Exception as exc:  # noqa: BLE001 - unknown means don't hard-block
-            return Support(None, f"could not check Harmony capabilities: {exc!r}")
+            return Capabilities(
+                None, collection=label, reason=f"could not check Harmony: {exc!r}"
+            )
+        services = response.get("services") or []
+        if not services:
+            return Capabilities(
+                False, collection=label, reason=f"no Harmony service for {label}"
+            )
+        operations, formats = _operations_from_services(services)
+        return Capabilities(
+            True, collection=label, operations=operations, formats=formats
+        )
