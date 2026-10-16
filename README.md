@@ -1,38 +1,112 @@
 # earthaccess-harmony
 
-Subset and transform Earthdata granules with NASA
-[Harmony](https://harmony.earthdata.nasa.gov/), through the earthaccess plugin
-contract.
+Subset, reproject, reformat and transform Earthdata granules with
+[NASA Harmony](https://harmony.earthdata.nasa.gov/), through earthaccess.
+
+## What Harmony does
+
+Harmony is NASA's asynchronous, cloud-based transformation service. You hand it
+a collection, a set of granules, a spatial/temporal region and a transformation
+(service chain) such as `subset`, `reproject` or `concatenate`, and it runs the
+work in the cloud, writing output files to object storage. Large requests can be
+held in a **preview** state for a human to approve before they run.
+
+This plugin exposes Harmony through the earthaccess plugin interface: one
+`request()` that returns a `Job`, and `results()` that returns the output files
+as assets you can open or download.
+
+## Install
+
+```bash
+pip install earthaccess-harmony
+```
+
+## Use with earthaccess
 
 ```python
-import earthaccess
+import earthaccess as ea
 
-results = earthaccess.search_data(
+results = ea.search_data(
     short_name="ATL06",
     bounding_box=(-120, 40, -110, 45),
+    temporal=("2020-01-01", "2020-02-01"),
 )
 
-job = earthaccess.plugins.harmony.request(
+job = ea.plugins.harmony.request(
     results,
     bbox=(-120, 40, -110, 45),
     variables=["/gt1l/land_ice_segments/h_li"],
-    skip_preview=True,
+    output_format="application/x-netcdf4",
 )
-assets = job.results()
 ```
 
-## Contract
+`request()` returns immediately. Then either open the results in memory or
+download them to disk — both block until the job finishes:
 
-- `output = "assets"`, `auth = "edl"`, `needs = {"concept_id"}`.
-- Remote, resumable job: `earthaccess.plugins.harmony.get_job(job.id)`.
-- Capabilities: `cancel`, `pause`, `resume`; Harmony-specific `skip_preview()`.
-- A large request enters the preview state, which maps to `PAUSED`.
+```python
+dataset = ea.open(job)            # list[earthaccess.Asset] -> open locally
+paths = ea.download(job, "./data")
+```
 
-## Verification points
+You can also get the raw assets and drive them yourself:
 
-`src/earthaccess_harmony/client.py` isolates every unverified `harmony-py`
-detail (client construction, `Request` keywords). `job.py:STATUS_MAP` is the
-single place to fix Harmony's status strings.
+```python
+assets = job.results()            # list[Asset]; each has href/access/format
+```
+
+### Options
+
+| Option | Meaning |
+| --- | --- |
+| `bbox=(west, south, east, north)` | spatial subset |
+| `variables=[...]` | variables to keep |
+| `shapefile="path.shp"` | spatial subset from a shapefile |
+| `output_format="application/x-netcdf4"` | requested media type |
+| `skip_preview=True` | run immediately instead of waiting for a preview |
+
+### Managing a Harmony order
+
+Harmony jobs are remote and resumable, so you can inspect and steer an order
+after submitting it:
+
+```python
+job.status()      # PENDING / RUNNING / PAUSED / SUCCEEDED / PARTIAL / FAILED / CANCELED
+job.info()        # backend detail (includes an order_url); never the request payload
+job.resumable     # True
+job.capabilities  # {'cancel', 'pause', 'resume'}
+
+job.pause()          # pause a running order
+job.resume()         # resume a paused order
+job.skip_preview()   # accept a large request without the preview gate
+job.cancel()         # cancel the order
+
+# Rebuild the job from its id, even from another process:
+same = ea.plugins.harmony.get_job(job.id)
+```
+
+Large requests enter Harmony's preview state, which maps to
+`JobStatus.PAUSED`. Calling `job.results()` then raises `JobPausedError`, whose
+message tells you to call `skip_preview()` or `resume()` first:
+
+```python
+from earthaccess_plugin_spec.errors import JobPausedError
+
+job = ea.plugins.harmony.request(results, variables=["h_li"])  # big request
+try:
+    dataset = ea.open(job)
+except JobPausedError:
+    job.skip_preview()
+    dataset = ea.open(job)
+```
+
+## Checking that a collection is supported
+
+Before submitting, the plugin confirms Harmony has a service for the collection
+and raises `UnsupportedCollectionError` early if it does not:
+
+```python
+ea.plugins.harmony.supports(results)   # Support(ok=True/False/None, reason=...)
+```
 
 ## License
 
