@@ -212,7 +212,7 @@ class TestBuildRequest:
         assert captured["concatenate"] is True
         assert captured["skip_preview"] is True
 
-    def test_geojson_shapefile_sets_geojson_mime(self, monkeypatch, tmp_path):
+    def test_geojson_shapefile_passes_path(self, monkeypatch, tmp_path):
         captured, _ = self._fake_harmony(monkeypatch)
         from earthaccess_harmony.client import build_request
 
@@ -220,11 +220,11 @@ class TestBuildRequest:
         path.write_text("{}")
         build_request(collection_id="C1", granule_ids=["G1"], shapefile=str(path))
 
-        handle, mime = captured["shape"]
-        assert mime == "application/geo+json"
-        handle.close()
+        # harmony-py opens/uploads the file itself and infers the MIME type from
+        # the extension, so it wants the path, not an open handle or tuple.
+        assert captured["shape"] == str(path)
 
-    def test_zip_shapefile_sets_shapefile_mime(self, monkeypatch, tmp_path):
+    def test_zip_shapefile_passes_path(self, monkeypatch, tmp_path):
         captured, _ = self._fake_harmony(monkeypatch)
         from earthaccess_harmony.client import build_request
 
@@ -232,8 +232,23 @@ class TestBuildRequest:
         path.write_bytes(b"")
         build_request(collection_id="C1", granule_ids=["G1"], shapefile=str(path))
 
-        _, mime = captured["shape"]
-        assert mime == "application/shapefile+zip"
+        assert captured["shape"] == str(path)
+
+    def test_shapefile_request_is_valid_against_real_harmony(self, tmp_path):
+        # Regression: harmony-py validates `shape` as a path string. Passing an
+        # open handle or a (file, mime) tuple made Request.is_valid() raise
+        # "TypeError: stat: path should be string ... not tuple" at submit time.
+        from earthaccess_harmony.client import build_request
+
+        path = tmp_path / "aoi.geojson"
+        path.write_text("{}")
+        request = build_request(
+            collection_id="C1234-PROV",
+            granule_ids=["G1"],
+            shapefile=str(path),
+        )
+
+        assert request.is_valid(), request.error_messages()
 
     def test_wkt_sets_spatial(self, monkeypatch):
         captured, _ = self._fake_harmony(monkeypatch)

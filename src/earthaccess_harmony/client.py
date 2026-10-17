@@ -9,7 +9,6 @@ Verified against ``harmony-py`` 1.8.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -22,14 +21,6 @@ __all__ = [
 ]
 
 _CAPABILITIES_VERSION = "3"
-
-_SHAPEFILE_MIMES = {
-    "zip": "application/shapefile+zip",
-    "shz": "application/shapefile+zip",
-    "json": "application/geo+json",
-    "geojson": "application/geo+json",
-    "kml": "application/vnd.google-earth.kml+xml",
-}
 
 
 class CapabilitiesUnavailable(Exception):
@@ -111,7 +102,10 @@ def build_request(
     if variables:
         kwargs["variables"] = list(variables)
     if shapefile:
-        kwargs["shape"] = _open_shapefile(shapefile)
+        # harmony-py takes the shapefile path and opens/uploads it itself,
+        # inferring the MIME type from the extension. Passing an open handle or
+        # a (file, mime) tuple fails its path validation.
+        kwargs["shape"] = shapefile
     if output_format:
         kwargs["format"] = output_format
     if skip_preview:
@@ -139,12 +133,6 @@ def build_request(
         if value is not None:
             kwargs[key] = value
     return harmony.Request(**kwargs)
-
-
-def _open_shapefile(path: str) -> tuple[Any, str]:
-    extension = os.path.splitext(path)[1].lstrip(".").lower()
-    mime = _SHAPEFILE_MIMES.get(extension, "application/geo+json")
-    return (open(path, "rb"), mime)
 
 
 def capabilities(
